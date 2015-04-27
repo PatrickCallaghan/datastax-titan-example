@@ -11,6 +11,11 @@ First you will need to load a sample graph into Titan which will contain Users a
 
 This is a simply traversal with some filtering on age.
 
+## Setup 
+You will need to download [titan](https://github.com/thinkaurelius/titan/wiki/Downloads) and install to use this demo. You will also need to start elasticsearch (included with titan).
+
+{TITAN_INTALL}/bin/elasticsearch
+
 ## Schema Setup
 Note : This will use the keyspace "datastax_titan_demo". 
 
