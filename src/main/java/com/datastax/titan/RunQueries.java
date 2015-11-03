@@ -2,17 +2,20 @@ package com.datastax.titan;
 
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datastax.demo.utils.Timer;
 import com.thinkaurelius.titan.core.TitanFactory;
 import com.thinkaurelius.titan.core.TitanGraph;
-import com.tinkerpop.blueprints.Vertex;
-import com.tinkerpop.gremlin.java.GremlinPipeline;
 
 
 public class RunQueries{
@@ -25,74 +28,38 @@ public class RunQueries{
 				.open("./src/main/resources/titan-cassandra.properties");
 		
 		Timer queryTimer = new Timer();
+		
+		GraphTraversal<Vertex, Map<String, Object>> valueMap = graph.traversal().V().valueMap();
+		logger.info(valueMap.toString());
+
 		Vertex user = runQueries();
 		queryTimer.end();
 		logger.info("Queries took " + queryTimer.getTimeTakenMillis() + "ms.");
 		
-		logger.info(recommendations.size() + " recommendations for user " + user.getProperty("name") +  " - " + recommendations.toString());
-		graph.shutdown();
+		logger.info(recommendations.size() + " recommendations for user " + user.property("name") +  " - " + recommendations.toString());
+		graph.close();
 		logger.info("Finished.");
 	}
 
 	private Vertex runQueries() {
-		Iterable<Vertex> vertices = graph.getVertices();
+		Vertex userV = graph.traversal().V().has("name", "U2").next();
 		
-		Vertex userV = vertices.iterator().next();
-		
-		//Get the products that the user bought
-		GremlinPipeline pipe = new GremlinPipeline();
-		pipe.start(userV).out("bought");
-		
-		Set productsBought = new HashSet(pipe.toList());				
-		getProducts(userV, productsBought);
+		GraphTraversalSource g = graph.traversal();
 
-		//For each product, find the users that bought it
-		Iterator iterator = productsBought.iterator();
-			
-		while(iterator.hasNext()){
-			Vertex product = graph.getVertex(iterator.next());
-
-			//Only select users who have bought the product and are within 5 years of our selected user.
-			GremlinPipeline similarUsers = new GremlinPipeline();			
-			similarUsers.start(product).in("bought").interval("age", (Integer)userV.getProperty("age") - 5, 
-					(Integer)userV.getProperty("age") + 5);
-			
-			Set similarUsersSet = new HashSet(similarUsers.toList());
-			
-			//For each similar user - find products 
-			for (Object similarUserId : similarUsersSet) {
-				
-				Vertex similarUser = graph.getVertex(similarUserId);								
-				if(similarUser.getId().equals(userV.getId())) continue;
-				
-				logger.info("User " + similarUser.getProperty("name") + " bought the same product as " + userV.getProperty("name"));
-			
-				GremlinPipeline productPipe = new GremlinPipeline();
-				productPipe.start(similarUser).out("bought");
-			
-				//Add all the similar user products to the target users recommendations.
-				recommendations.addAll(this.getProducts(similarUser, new HashSet(productPipe.toList())));
-			}
-		}	
+		//Get the products that the user bought, then get all users within 10 years and get their products as recommendations
+		//g.V(user).out("bought").in().has("age", between(32,42)).out("bought").values("name");
+		
+		int min = (Integer.parseInt(userV.property("age").value().toString()) - 5);
+		int max = (Integer.parseInt(userV.property("age").value().toString()) + 5);
+		
+		GraphTraversal<Vertex, Vertex> out = g.V(userV).out("bought").in().has("age", P.between(min,max)).out("bought");
+		
+		Set<Vertex> set = out.toSet();
+		for (Vertex v : set){
+			recommendations.add(v);
+		}
 		return userV;
 	}	
-
-	private Collection<Vertex> getProducts(Vertex user, Set products) {
-		
-		logger.info("User " + user.getProperty("name") + " bought : " + products.size() + " products.");
-		
-		Collection<Vertex> temp = new HashSet<Vertex>();
-		
-		StringBuffer buffer = new StringBuffer();
-		for (Object product : products){
- 			buffer.append(" -"+ ((Vertex)product).getProperty("name"));
- 			
- 			temp.add((Vertex)product);
-		}
-		
-		logger.info("User " + user.getProperty("name") + "(" + user.getProperty("age") + ") bought product " + buffer.toString());
-		return temp;
-	}
 
 	public static void main(String[] args) {
 		new RunQueries();

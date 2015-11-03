@@ -1,12 +1,11 @@
 package com.datastax.titan;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Date;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,9 +13,9 @@ import com.datastax.demo.utils.PropertyHelper;
 import com.datastax.demo.utils.Timer;
 import com.thinkaurelius.titan.core.TitanFactory;
 import com.thinkaurelius.titan.core.TitanGraph;
+import com.thinkaurelius.titan.core.TitanTransaction;
+import com.thinkaurelius.titan.core.TitanVertex;
 import com.thinkaurelius.titan.core.schema.TitanManagement;
-import com.tinkerpop.blueprints.Edge;
-import com.tinkerpop.blueprints.Vertex;
 
 
 public class Main{
@@ -27,8 +26,8 @@ public class Main{
 		graph = TitanFactory
 				.open("./src/main/resources/titan-cassandra.properties");
 		
-		String noOfUsersStr = PropertyHelper.getProperty("noOfUsers", "10000");
-		String noOfProductsStr = PropertyHelper.getProperty("noOfProducts", "1000");
+		String noOfUsersStr = PropertyHelper.getProperty("noOfUsers", "100");
+		String noOfProductsStr = PropertyHelper.getProperty("noOfProducts", "100");
 
 		int noOfUsers = Integer.parseInt(noOfUsersStr);
 		int noOfProducts = Integer.parseInt(noOfProductsStr);
@@ -41,96 +40,90 @@ public class Main{
 		createProducts(noOfProducts, products);
 		
 		int totalEdges = noOfProducts > noOfUsers ? noOfProducts : noOfUsers;		
-		createEdges(totalEdges *2, users, products);
+		createEdges(totalEdges *4, users, products);
 		
 		overallTimer.end();
 		logger.info("Overall took " + overallTimer.getTimeTakenSeconds() + "secs to complete.");
 		
-		graph.shutdown();
+		Iterator<Vertex> vertices = graph.vertices();
+				
+		graph.close();
 		logger.info("Finished.");
 	}
-
-
-	private Collection<Vertex> getProducts(Vertex user, Set products) {
-		
-		logger.info("User " + user.getProperty("name") + " bought : " + products.size() + " products.");
-		
-		Collection<Vertex> temp = new HashSet<Vertex>();
-		
-		StringBuffer buffer = new StringBuffer();
-		for (Object product : products){
- 			buffer.append(" -"+ ((Vertex)product).getProperty("name"));
- 			
- 			temp.add((Vertex)product);
-		}
-		
-		logger.info("User " + user.getProperty("name") + "(" + user.getProperty("age") + ") bought product " + buffer.toString());
-		return temp;
-	}
-
+	
 	private void createEdges(int totalEdges, List<Object> users, List<Object> products) {
 		logger.info("Adding " + totalEdges + " edges");
 		
-		TitanManagement managementSystem = graph.getManagementSystem();
+		TitanManagement managementSystem = graph.openManagement();
+		managementSystem.makeEdgeLabel("bought");
+		managementSystem.commit();
+		
+		TitanTransaction tx = graph.newTransaction();		
+		
 		for (int i = 0; i < totalEdges; i++) {			
 			
-			Vertex userV = graph.getVertex(users.get(new Double(Math.random() * users.size()).intValue()));
-			Vertex productV = graph.getVertex(products.get(new Double(Math.random() * products.size()).intValue()));
+			Iterator<Vertex> vertices = graph.vertices(users.get(new Double(Math.random() * users.size()).intValue()));
+			Vertex userV = vertices.next();
+			vertices = graph.vertices(products.get(new Double(Math.random() * products.size()).intValue()));
+			Vertex productV = vertices.next();
 			
-			Edge e = graph.addEdge(null, graph.getVertex(userV), graph.getVertex(productV), "bought");
-			e.setProperty("weight", Math.random());
-			e.setProperty("time", new Date());			
+			//if (userV.property("name").value().toString().equalsIgnoreCase("U2")){
+				logger.info("Yes - Creating edge for " + userV.property("name").value().toString() + " and " + productV.property("name"));
+		
+			userV.addEdge("bought", productV, "weight", Math.random(), "time", new Date());
 		}
 		
-		managementSystem.commit();
+		tx.commit();
 	}
 
 	private void createProducts(int noOfProducts, List<Object> products) {
 		
-		TitanManagement managementSystem = graph.getManagementSystem();
+		TitanManagement managementSystem = graph.openManagement();
 		logger.info("Adding " + noOfProducts + " Products");
 		for (int i = 0; i < noOfProducts; i++) {
 			
-			Vertex a = graph.addVertex(null);
+			TitanVertex v = graph.addVertex();
 
 			String product= "P" + i;
 
-			a.setProperty("name", product);
-			a.setProperty("price", (Math.random() * 99) + 1);			
-			graph.commit();
+			v.property("name", product);
+			v.property("price", (Math.random() * 99) + 1);			
 			
-			products.add(a.getId());	
+			products.add(v.id());
+			graph.tx().commit();
 			
 			if (i+1 % 1000 == 0){			
 				logger.info("Total Products : " + i);
 				managementSystem.commit();
-				managementSystem = graph.getManagementSystem();
+				managementSystem = graph.openManagement();
 			}
 		}
 		managementSystem.commit();
 	}
 
 	private void createUsers(int noOfUsers, List<Object> users) {
-		TitanManagement managementSystem = graph.getManagementSystem();
+		TitanManagement managementSystem = graph.openManagement();
 		
 		logger.info("Adding " + noOfUsers + " Users");
 		for (int i = 0; i < noOfUsers; i++) {
 			
-			Vertex a = graph.addVertex(null);
+			graph.tx().open();
+			TitanVertex v = graph.addVertex();
 
 			String user = "U" + i;
 
-			a.setProperty("name", user);
-			a.setProperty("userid", i);		
-			a.setProperty("age", new Double(Math.random() * 60).intValue() + 18);
-			graph.commit();
+			v.property("name", user);
+			v.property("userid", i);		
+			v.property("age", new Double(Math.random() * 60).intValue() + 18);
 			
-			users.add(a.getId());	
+			graph.tx().commit();
+			
+			users.add(v.id());	
 			
 			if (i+1 % 1000 == 0){				
 				logger.info("Total Users : " + i);
 				managementSystem.commit();
-				managementSystem = graph.getManagementSystem();
+				managementSystem = graph.openManagement();
 			}
 		}
 		managementSystem.commit();
