@@ -89,14 +89,7 @@ public class Main{
 			v.property("name", product);
 			v.property("price", (Math.random() * 99) + 1);			
 			
-			products.add(v.id());
-			graph.tx().commit();
-			
-			if (i+1 % 1000 == 0){			
-				logger.info("Total Products : " + i);
-				managementSystem.commit();
-				managementSystem = graph.openManagement();
-			}
+			products.add(v.id());				
 		}
 		managementSystem.commit();
 	}
@@ -107,7 +100,6 @@ public class Main{
 		logger.info("Adding " + noOfUsers + " Users");
 		for (int i = 0; i < noOfUsers; i++) {
 			
-			graph.tx().open();
 			TitanVertex v = graph.addVertex();
 
 			String user = "U" + i;
@@ -118,13 +110,7 @@ public class Main{
 			
 			graph.tx().commit();
 			
-			users.add(v.id());	
-			
-			if (i+1 % 1000 == 0){				
-				logger.info("Total Users : " + i);
-				managementSystem.commit();
-				managementSystem = graph.openManagement();
-			}
+			users.add(v.id());				
 		}
 		managementSystem.commit();
 	}
